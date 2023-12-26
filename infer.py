@@ -1,4 +1,5 @@
 import os
+import pathlib
 
 from tqdm import tqdm
 from PIL import Image
@@ -14,73 +15,77 @@ import torch.nn.functional as F
 import torchvision.transforms as transforms
 
 from data.base_dataset import Normalize_image
-from utils.saving_utils import load_checkpoint_mgpu
+from utils.saving_utils import load_checkpoint_mgpu, load_checkpoint
 
 from networks import U2NET
 
-device = "cuda"
 
-image_dir = "input_images"
-result_dir = "output_images"
-checkpoint_path = os.path.join("trained_checkpoint", "cloth_segm_u2net_latest.pth")
-do_palette = True
+if __name__ == "__main__":
+    current_dir = pathlib.Path(__file__).parent.absolute()
+    device = "cuda:0"
 
-
-def get_palette(num_cls):
-    """Returns the color map for visualizing the segmentation mask.
-    Args:
-        num_cls: Number of classes
-    Returns:
-        The color map
-    """
-    n = num_cls
-    palette = [0] * (n * 3)
-    for j in range(0, n):
-        lab = j
-        palette[j * 3 + 0] = 0
-        palette[j * 3 + 1] = 0
-        palette[j * 3 + 2] = 0
-        i = 0
-        while lab:
-            palette[j * 3 + 0] |= ((lab >> 0) & 1) << (7 - i)
-            palette[j * 3 + 1] |= ((lab >> 1) & 1) << (7 - i)
-            palette[j * 3 + 2] |= ((lab >> 2) & 1) << (7 - i)
-            i += 1
-            lab >>= 3
-    return palette
+    image_dir = os.path.join(current_dir, "input_images")
+    result_dir = os.path.join(current_dir, "output_images")
+    checkpoint_path = os.path.join(current_dir, "results", "training_cloth_segm_u2net_exp1", "prev_checkpoints", "itr_00100000_u2net.pth")
+    do_palette = True
 
 
-transforms_list = []
-transforms_list += [transforms.ToTensor()]
-transforms_list += [Normalize_image(0.5, 0.5)]
-transform_rgb = transforms.Compose(transforms_list)
+    def get_palette(num_cls):
+        """Returns the color map for visualizing the segmentation mask.
+        Args:
+            num_cls: Number of classes
+        Returns:
+            The color map
+        """
+        n = num_cls
+        palette = [0] * (n * 3)
+        for j in range(0, n):
+            lab = j
+            palette[j * 3 + 0] = 0
+            palette[j * 3 + 1] = 0
+            palette[j * 3 + 2] = 0
+            i = 0
+            while lab:
+                palette[j * 3 + 0] |= ((lab >> 0) & 1) << (7 - i)
+                palette[j * 3 + 1] |= ((lab >> 1) & 1) << (7 - i)
+                palette[j * 3 + 2] |= ((lab >> 2) & 1) << (7 - i)
+                i += 1
+                lab >>= 3
+        return palette
 
-net = U2NET(in_ch=3, out_ch=4)
-net = load_checkpoint_mgpu(net, checkpoint_path)
-net = net.to(device)
-net = net.eval()
 
-palette = get_palette(4)
+    transforms_list = []
+    transforms_list += [transforms.ToTensor()]
+    transforms_list += [Normalize_image(0.5, 0.5)]
+    transform_rgb = transforms.Compose(transforms_list)
 
-images_list = sorted(os.listdir(image_dir))
-pbar = tqdm(total=len(images_list))
-for image_name in images_list:
-    img = Image.open(os.path.join(image_dir, image_name)).convert("RGB")
-    image_tensor = transform_rgb(img)
-    image_tensor = torch.unsqueeze(image_tensor, 0)
+    net = U2NET(in_ch=3, out_ch=4)
+    net = load_checkpoint(net, checkpoint_path)
+    net = net.to(device)
+    net = net.eval()
 
-    output_tensor = net(image_tensor.to(device))
-    output_tensor = F.log_softmax(output_tensor[0], dim=1)
-    output_tensor = torch.max(output_tensor, dim=1, keepdim=True)[1]
-    output_tensor = torch.squeeze(output_tensor, dim=0)
-    output_tensor = torch.squeeze(output_tensor, dim=0)
-    output_arr = output_tensor.cpu().numpy()
+    palette = get_palette(4)
 
-    output_img = Image.fromarray(output_arr.astype("uint8"), mode="L")
-    if do_palette:
-        output_img.putpalette(palette)
-    output_img.save(os.path.join(result_dir, image_name[:-3] + "png"))
+    images_list = sorted(os.listdir(image_dir))
+    pbar = tqdm(total=len(images_list))
+    for image_name in images_list:
 
-    pbar.update(1)
+        img = Image.open(os.path.join(image_dir, image_name)).convert("RGB")
+        image_tensor = transform_rgb(img)
+        image_tensor = torch.unsqueeze(image_tensor, 0)
 
-pbar.close()
+        output_tensor = net(image_tensor.to(device))
+        output_tensor = F.log_softmax(output_tensor[0], dim=1)
+        output_tensor = torch.max(output_tensor, dim=1, keepdim=True)[1]
+        output_tensor = torch.squeeze(output_tensor, dim=0)
+        output_tensor = torch.squeeze(output_tensor, dim=0)
+        output_arr = output_tensor.cpu().numpy()
+
+        output_img = Image.fromarray(output_arr.astype("uint8"), mode="L")
+        if do_palette:
+            output_img.putpalette(palette)
+        output_img.save(os.path.join(result_dir, image_name[:-3] + "png"))
+        torch.cuda.empty_cache()
+        pbar.update(1)
+
+    pbar.close()

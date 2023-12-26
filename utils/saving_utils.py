@@ -9,16 +9,16 @@ import torch
 
 def load_checkpoint(model, checkpoint_path):
     if not os.path.exists(checkpoint_path):
-        print("----No checkpoints at given path----")
+        print("----No prev_checkpoints at given path----")
         return
     model.load_state_dict(torch.load(checkpoint_path, map_location=torch.device("cpu")))
-    print("----checkpoints loaded from path: {}----".format(checkpoint_path))
+    print("----prev_checkpoints loaded from path: {}----".format(checkpoint_path))
     return model
 
 
 def load_checkpoint_mgpu(model, checkpoint_path):
     if not os.path.exists(checkpoint_path):
-        print("----No checkpoints at given path----")
+        print("----No prev_checkpoints at given path----")
         return
     model_state_dict = torch.load(checkpoint_path, map_location=torch.device("cpu"))
     new_state_dict = OrderedDict()
@@ -26,8 +26,8 @@ def load_checkpoint_mgpu(model, checkpoint_path):
         name = k[7:]  # remove `module.`
         new_state_dict[name] = v
 
-    model.load_state_dict(new_state_dict)
-    print("----checkpoints loaded from path: {}----".format(checkpoint_path))
+    model.load_state_dict(model_state_dict, strict=False)
+    print("----prev_checkpoints loaded from path: {}----".format(checkpoint_path))
     return model
 
 
